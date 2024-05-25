@@ -268,7 +268,10 @@ func (ps *PeerStorage) Append(entries []eraftpb.Entry, raftWB *engine_util.Write
 		//       Use the input `raftWB` to save the append results, do check if the input `entries` are empty.
 		//       Note the raft logs are stored as the `meta` type key-value pairs, so the `RaftLogKey` and `SetMeta`
 		//       functions could be useful.
-		raftWB.SetMeta(meta.RaftLogKey(ps.region.Id, entry.Index), &entry)
+		err := raftWB.SetMeta(meta.RaftLogKey(ps.region.Id, entry.Index), &entry)
+		if err != nil {
+			return err
+		}
 		log.Debug(fmt.Sprintf("entry=%v", entry))
 	}
 
