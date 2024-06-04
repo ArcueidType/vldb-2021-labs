@@ -30,22 +30,19 @@ func NewPrewrite(request *kvrpcpb.PrewriteRequest) Prewrite {
 
 // PrepareWrites prepares the data to be written to the raftstore. The data flow is as follows.
 // The tinysql part:
-//
-//			user client -> insert/delete query -> tinysql server
-//	     query -> parser -> planner -> executor -> the transaction memory buffer
-//			memory buffer -> kv muations -> kv client 2pc committer
-//			committer -> prewrite all the keys
-//			committer -> commit all the keys
-//			tinysql server -> respond to the user client
-//
+// 		user client -> insert/delete query -> tinysql server
+//      query -> parser -> planner -> executor -> the transaction memory buffer
+//		memory buffer -> kv muations -> kv client 2pc committer
+//		committer -> prewrite all the keys
+//		committer -> commit all the keys
+//		tinysql server -> respond to the user client
 // The tinykv part:
-//
-//			prewrite requests -> transaction mutations -> raft request
-//			raft req -> raft router -> raft worker -> peer propose raft req
-//			raft worker -> peer receive majority response for the propose raft req  -> peer raft committed entries
-//	 	raft worker -> process committed entries -> send apply req to apply worker
-//			apply worker -> apply the correspond requests to storage(the state machine) -> callback
-//			callback -> signal the response action -> response to kv client
+//		prewrite requests -> transaction mutations -> raft request
+//		raft req -> raft router -> raft worker -> peer propose raft req
+//		raft worker -> peer receive majority response for the propose raft req  -> peer raft committed entries
+//  	raft worker -> process committed entries -> send apply req to apply worker
+//		apply worker -> apply the correspond requests to storage(the state machine) -> callback
+//		callback -> signal the response action -> response to kv client
 func (p *Prewrite) PrepareWrites(txn *mvcc.MvccTxn) (interface{}, error) {
 	response := new(kvrpcpb.PrewriteResponse)
 
@@ -73,62 +70,54 @@ func (p *Prewrite) prewriteMutation(txn *mvcc.MvccTxn, mut *kvrpcpb.Mutation) (*
 	// Hint: Check the interafaces provided by `mvcc.MvccTxn`. The error type `kvrpcpb.WriteConflict` is used
 	//		 denote to write conflict error, try to set error information properly in the `kvrpcpb.KeyError`
 	//		 response.
-	writeRec, writeTs, err := txn.MostRecentWrite(key)
-	if err != nil {
+	//panic("prewriteMutation is not implemented yet")
+	write, mrw_ts, err := txn.MostRecentWrite(key)
+	if err != nil{
 		return nil, err
 	}
-
-	if writeRec != nil && txn.StartTS <= writeTs {
-		keyErr := &kvrpcpb.KeyError{
+	if write != nil && mrw_ts >= txn.StartTS{
+		keyError := kvrpcpb.KeyError{
 			Conflict: &kvrpcpb.WriteConflict{
-				StartTs:    txn.StartTS,
-				ConflictTs: writeTs,
 				Key:        key,
+				StartTs:    txn.StartTS,
 				Primary:    p.request.PrimaryLock,
+				ConflictTs: mrw_ts,
 			},
 		}
-		return keyErr, nil
+		return &keyError, nil
 	}
+
 	// YOUR CODE HERE (lab2).
 	// Check if key is locked. Report key is locked error if lock does exist, note the key could be locked
 	// by this transaction already and the current prewrite request is stale.
+	//panic("check lock in prewrite is not implemented yet")
 	lock, err := txn.GetLock(key)
-	if err != nil {
+	if err != nil{
 		return nil, err
 	}
-
-	if lock != nil && txn.StartTS != lock.Ts {
-		lockedError := &kvrpcpb.KeyError{
-			Locked: &kvrpcpb.LockInfo{
-				PrimaryLock: lock.Primary,
-				LockVersion: lock.Ts,
-				Key:         key,
-				LockTtl:     lock.Ttl,
+	if lock != nil && lock.Ts != txn.StartTS{
+		keyError := kvrpcpb.KeyError{
+			Locked: lock.Info(key),
+			Conflict: &kvrpcpb.WriteConflict{
+				Key:        key,
+				StartTs:    txn.StartTS,
+				Primary:    p.request.PrimaryLock,
+				ConflictTs: lock.Ts,
 			},
 		}
-		return lockedError, nil
+		return &keyError, nil
 	}
 	// YOUR CODE HERE (lab2).
 	// Write a lock and value.
 	// Hint: Check the interfaces provided by `mvccTxn.Txn`.
-	var writeKind mvcc.WriteKind
-
-	switch mut.Op {
-	case kvrpcpb.Op_Put:
-		writeKind = mvcc.WriteKindPut
-	case kvrpcpb.Op_Del:
-		writeKind = mvcc.WriteKindDelete
-	case kvrpcpb.Op_Rollback:
-		writeKind = mvcc.WriteKindRollback
-	}
-
-	newLock := &mvcc.Lock{
+	//panic("lock record generation is not implemented yet")
+	new_lock := &mvcc.Lock{
 		Primary: p.request.PrimaryLock,
 		Ts:      txn.StartTS,
 		Ttl:     p.request.LockTtl,
-		Kind:    writeKind,
+		Kind:    mvcc.WriteKindFromProto(mut.Op),
 	}
-	txn.PutLock(key, newLock)
+	txn.PutLock(key, new_lock)
 	txn.PutValue(key, mut.Value)
 
 	return nil, nil

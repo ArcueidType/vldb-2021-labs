@@ -22,7 +22,7 @@ import (
 	"go.uber.org/zap"
 )
 
-const TIMEOUT = 15 * time.Second
+const TIMEOUT = 10 * time.Second
 
 type Simulator interface {
 	RunStore(raftConf *config.Config, engine *engine_util.Engines, ctx context.Context) error
